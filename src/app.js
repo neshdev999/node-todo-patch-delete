@@ -12,12 +12,12 @@ const path = require('path')
 
 const app = express()
 
-const morganOption = (NODE_ENV === 'production')
-  ? 'tiny'
-  : 'common';
+const morganOption = (NODE_ENV === 'production') ?
+    'tiny' :
+    'common';
 
 app.use(morgan(morganOption, {
-  skip: () => NODE_ENV === 'test',
+    skip: () => NODE_ENV === 'test',
 }))
 app.use(cors())
 app.use(helmet())
@@ -25,74 +25,108 @@ app.use(helmet())
 app.use(express.static('public'))
 
 const serializeTodo = todo => ({
-  id: todo.id,
-  title: xss(todo.title),
-  completed: todo.completed
+    id: todo.id,
+    title: xss(todo.title),
+    completed: todo.completed
 })
 
 app
-  .route('/v1/todos')
-  .get((req, res, next) => {
-    const knexInstance = req.app.get('db')
-    TodoService.getTodos(knexInstance)
-      .then(todos => {
-        res.json(todos.map(serializeTodo))
-      })
-      .catch(next)
-  })
-  .post(jsonParser, (req, res, next) => {
-    const { title, completed = false } = req.body
-    const newTodo = { title }
+    .route('/v1/todos')
+    .get((req, res, next) => {
+        const knexInstance = req.app.get('db')
+        TodoService.getTodos(knexInstance)
+            .then(todos => {
+                res.json(todos.map(serializeTodo))
+            })
+            .catch(next)
+    })
+    .post(jsonParser, (req, res, next) => {
+        const { title, completed = false } = req.body
+        const newTodo = { title }
 
-    for (const [key, value] of Object.entries(newTodo))
-      if (value == null)
-        return res.status(400).json({
-          error: { message: `Missing '${key}' in request body` }
-        })
+        for (const [key, value] of Object.entries(newTodo))
+            if (value == null)
+                return res.status(400).json({
+                    error: { message: `Missing '${key}' in request body` }
+                })
 
-    newTodo.completed = completed;  
+        newTodo.completed = completed;
 
-    TodoService.insertTodo(
-      req.app.get('db'),
-      newTodo
-    )
-      .then(todo => {
-        res
-          .status(201)
-          .location(path.posix.join(req.originalUrl, `/${todo.id}`))
-          .json(serializeTodo(todo))
-      })
-      .catch(next)
-  })
+        TodoService.insertTodo(
+                req.app.get('db'),
+                newTodo
+            )
+            .then(todo => {
+                res
+                    .status(201)
+                    .location(path.posix.join(req.originalUrl, `/${todo.id}`))
+                    .json(serializeTodo(todo))
+            })
+            .catch(next)
+    })
 
 app
-  .route('/v1/todos/:todo_id')
-  .all((req, res, next) => {
-    if(isNaN(parseInt(req.params.todo_id))) {
-      return res.status(404).json({
-        error: { message: `Invalid id` }
-      })
-    }
-    TodoService.getTodoById(
-      req.app.get('db'),
-      req.params.todo_id
-    )
-      .then(todo => {
-        if (!todo) {
-          return res.status(404).json({
-            error: { message: `Todo doesn't exist` }
-          })
+    .route('/v1/todos/:todo_id')
+    .all((req, res, next) => {
+        if (isNaN(parseInt(req.params.todo_id))) {
+            return res.status(404).json({
+                error: { message: `Invalid id` }
+            })
         }
-        res.todo = todo
-        next()
-      })
-      .catch(next)
-  })
-  .get((req, res, next) => {
-    res.json(serializeTodo(res.todo))
-  })
-  .patch(/* Your code here */)
-  .delete(/* Your code here */)
+        TodoService.getTodoById(
+                req.app.get('db'),
+                req.params.todo_id
+            )
+            .then(todo => {
+                if (!todo) {
+                    return res.status(404).json({
+                        error: { message: `Todo doesn't exist` }
+                    })
+                }
+                res.todo = todo
+                next()
+            })
+            .catch(next)
+    })
+    .get((req, res, next) => {
+        res.json(serializeTodo(res.todo))
+    })
+    .patch(jsonParser, (req, res, next) => {
+        // take data from user
+        const { title, completed } = req.body;
+        const todoToUpdate = { title, completed };
+
+        const numOfValues = Object.values(todoToUpdate).filter(Boolean).length;
+
+        if (numOfValues === 0) {
+            return res.status(400).json({
+                error: {
+                    message: `'title' or 'completed' is missing`
+                }
+            })
+        }
+
+        TodoService.updateTodo(
+                req.app.get('db'),
+                req.params.todo_id,
+                todoToUpdate
+            )
+            .then(todos => {
+                res.status(200).json(serializeTodo(todos[0]))
+            })
+            .catch(next)
+    })
+    .delete((req, res, next) => {
+        TodoService.deleteTodo(
+                req.app.get('db'),
+                req.params.todo_id
+            )
+            .then(numOfRowsAffected => {
+                res.status(204).json(numOfRowsAffected).end()
+            })
+            .catch(next)
+    })
+
 
 
 app.use(errorHandler)
